@@ -201,3 +201,56 @@ when passed a ``profile_dir``. It is Firefox-based.
     # settings.py
     PLAYWRIGHT_BROWSER_PROVIDER = "myproject.providers.InvisibleBrowserProvider"
     PLAYWRIGHT_BROWSER_TYPE = "firefox"
+
+
+nokk
+----
+
+`nokk <https://github.com/koloss777/nokk>`__ is a headless browser engine that
+speaks the Chrome DevTools Protocol and passes Cloudflare's challenges. Its
+Python package starts the engine as a CDP server, and the provider connects
+Playwright's Chromium to it. It has no persistent contexts.
+
+.. code-block:: python
+
+    from contextlib import AsyncExitStack
+
+    from scrapy_playwright.handler import Config
+
+
+    class NokkBrowserProvider:
+        def __init__(self, config: Config) -> None:
+            self.config = config
+            self.stack = AsyncExitStack()
+
+        async def start(self) -> None:
+            import nokk
+            from playwright.async_api import async_playwright
+
+            # e.g. auto_solve / proxy / workers via PLAYWRIGHT_LAUNCH_OPTIONS
+            self.server = await self.stack.enter_async_context(
+                await nokk.launch_async(**self.config.launch_options)
+            )
+            _playwright = await self.stack.enter_async_context(async_playwright())
+            self.browser_type = _playwright.chromium
+
+        async def launch_browser(self):
+            return await self.browser_type.connect_over_cdp(self.server.ws_endpoint)
+
+        async def launch_persistent_context(self, context_kwargs: dict):
+            from scrapy.exceptions import NotSupported
+
+            raise NotSupported("nokk has no persistent contexts")
+
+        async def close(self) -> None:
+            await self.stack.aclose()
+
+.. code-block:: python
+
+    # settings.py
+    PLAYWRIGHT_BROWSER_PROVIDER = "myproject.providers.NokkBrowserProvider"
+    PLAYWRIGHT_BROWSER_TYPE = "chromium"
+    PLAYWRIGHT_LAUNCH_OPTIONS = {"auto_solve": True}
+    # A page behind a challenge first answers 403, as it does in Chrome; the
+    # response body is the page behind it.
+    HTTPERROR_ALLOWED_CODES = [403]
